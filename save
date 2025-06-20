@@ -1,0 +1,84 @@
+
+const TelegramApi = require('node-telegram-bot-api')
+token = '5337124438:AAE04oWHASaPccC_ewRzhcxXtGwc3qTZ8_E'
+const bot = new TelegramApi(token, {polling:true})
+const fs = require('fs');
+const { TextDecoder } = require('util');
+waitingDeposit = false;
+const fileName = 'log.txt';
+waitingPaid = false;
+let data = { 
+    deposit: 1,
+    totalChecks: 0,
+    totalAmount: 0,
+    get totalAmountMProcent () {return data.totalAmount / 100 * 94},
+    paid: 0,
+    get readyForPayment () {return Math.round(data.totalAmount - data.totalAmountMProcent - data.paid)},
+}
+
+
+fs.writeFile(fileName, JSON.stringify(data, null, 4), (err) => {
+    if (err) throw err;
+    console.log('Данные сохранены в файл');
+  });
+
+
+
+async function start() {
+
+    bot.on('callback_query', async msg => {
+        const data = msg.data;
+        const chatId = msg.message.chat.id;
+        const text = msg.text;
+        console.log(msg)
+
+    })
+    
+    
+    bot.on('message', async (msg) => {
+        const chatId = msg.chat.id;
+        const text = msg.text;
+        console.log(msg)
+        
+        if(waitingDeposit) {
+            data.deposit = parseFloat(text);
+            console.log(data.deposit);
+            waitingDeposit = false;
+            await bot.deleteMessage(msgWait.chat.id, msgWait.message_id);
+            await bot.sendMessage(msgWait.chat.id, `Зачисленно на депозит: ${parseFloat(text)}`)
+         }
+         
+        if(waitingPaid) {
+            if(parseFloat(text) )
+            data.paid = parseFloat(text);
+            waitingPaid = false;
+        }
+
+        if(text === '/balance') {
+            bot.sendMessage(msg.chat.id, 
+        `Депозит: ${data.deposit.toLocaleString('eu', {style: 'currency', currency: 'USD'})}
+Всего чеков: ${data.totalChecks}
+Общий оборот:${data.totalAmount}
+Общий оборот(-%): ${data.totalAmountMProcent}
+Выплачено: ${data.paid}
+Осталось к оплате: ${data.readyForPayment}`);  
+        }
+        if(text === 'data') {
+            console.log(data.deposit)
+        }
+        if(text === '/deposit'){
+            waitingDeposit = true;
+             msgWait = await bot.sendMessage(msg.chat.id, `Введите сумму депозита:`);
+            
+
+    
+        }
+        if(text === '/paid') {
+            waitingPaid = true;
+            msgWait = await bot.sendMessage(msg.chat.id, `Введите сумму выплаты:`);
+        }
+     })
+     
+}
+
+start()

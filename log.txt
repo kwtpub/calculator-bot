@@ -1,0 +1,10 @@
+{
+    "currentTime": null,
+    "deposit": 1,
+    "totalChecks": 0,
+    "totalAmount": 0,
+    "dollarExchangeRate": 91,
+    "totalAmountMProcent": 0,
+    "paid": 0,
+    "readyForPayment": 0
+}
