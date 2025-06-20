@@ -1,0 +1,23 @@
+{
+  "deposit": 22400,
+  "procentage": 5,
+  "paid": 0,
+  "buyRate": 89,
+  "sellRate": 90,
+  "orders": [
+    {
+      "id": 1,
+      "buyAmountRUB": 1,
+      "status": "open",
+      "profitRUB": null,
+      "sellAmountRUB": null,
+      "openTimestamp": "2025-06-20T20:05:41.073Z"
+    }
+  ],
+  "nextOrderId": 3,
+  "admins": [
+    722365458,
+    7031413034,
+    5040590272
+  ]
+}

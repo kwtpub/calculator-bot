@@ -7,4 +7,9 @@
     "totalAmountMProcent": 0,
     "paid": 0,
     "readyForPayment": 0
-}
+}[21.06.2025, 00:05:41] Opened order #1 for 1,00 ₽
+[21.06.2025, 00:06:21] Deposit added: 2 500,00 ₽. Total: 2 500,00 ₽
+[21.06.2025, 00:06:38] Expense: 100,00 ₽. Total deposit: 2 400,00 ₽
+[21.06.2025, 00:06:44] Opened order #2 for 2 000,00 ₽
+[21.06.2025, 00:06:57] Cancelled order #2
+[21.06.2025, 00:08:17] Deposit added: 20 000,00 ₽. Total: 22 400,00 ₽
