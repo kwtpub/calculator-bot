@@ -17,6 +17,7 @@ bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const chatState = core.getChatState(chatId);
+    if (!Array.isArray(chatState.admins)) chatState.admins = [934931129, 722365458, 7031413034, 5040590272, 1653318632];
     const isAdmin = chatState.admins.includes(userId);
     const text = msg.text;
     if (!text) return;
@@ -36,24 +37,23 @@ bot.on('message', async (msg) => {
     const num = parseFloat(text);
     if (!isNaN(num) && msgWait[chatId]) {
         let processed = false;
-        const activeCard = core.getActiveCard(chatId, userId);
         if (waiting[chatId].deposit) {
-            if (!activeCard) return bot.sendMessage(chatId, "Сначала выберите карту командой /usecard <ID>");
-            activeCard.deposit += num;
-            bot.sendMessage(chatId, `Депозит карты "${activeCard.name}" увеличен на ${helpers.formatRUB(num)}. Текущий депозит: ${helpers.formatRUB(activeCard.deposit)}`);
-            helpers.logTransaction(`Card #${activeCard.id} Deposit: ${helpers.formatRUB(num)}. Total: ${helpers.formatRUB(activeCard.deposit)}`, core.logFilePath);
+            if (typeof chatState.deposit !== 'number') chatState.deposit = 0;
+            chatState.deposit += num;
+            bot.sendMessage(chatId, `Депозит увеличен на ${helpers.formatUSD(num, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}`);
+            helpers.logTransaction(`Депозит увеличен на ${helpers.formatUSD(num, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}`, core.logFilePath);
+            processed = true;
+        } else if (waiting[chatId].withdrawRUB) {
+            if (typeof chatState.withdrawRUB !== 'number') chatState.withdrawRUB = 0;
+            chatState.withdrawRUB += num;
+            bot.sendMessage(chatId, `Сумма перегнанных в RUB увеличена на ${helpers.formatRUB(num)}. Всего перегнано: ${helpers.formatRUB(chatState.withdrawRUB)}`);
+            helpers.logTransaction(`Сумма перегнанных в RUB увеличена на ${helpers.formatRUB(num)}. Всего перегнано: ${helpers.formatRUB(chatState.withdrawRUB)}`, core.logFilePath);
             processed = true;
         } else if (waiting[chatId].depositMinus) {
-            if (!activeCard) return bot.sendMessage(chatId, "Сначала выберите карту командой /usecard <ID>");
-            activeCard.deposit -= num;
-            bot.sendMessage(chatId, `С депозита карты "${activeCard.name}" списан расход на ${helpers.formatRUB(num)}. Текущий депозит: ${helpers.formatRUB(activeCard.deposit)}`);
-            helpers.logTransaction(`Card #${activeCard.id} Expense: ${helpers.formatRUB(num)}. Total deposit: ${helpers.formatRUB(activeCard.deposit)}`, core.logFilePath);
+            bot.sendMessage(chatId, "Сначала выберите карту командой /usecard <ID>");
             processed = true;
         } else if (waiting[chatId].paid) {
-            if (!activeCard) return bot.sendMessage(chatId, "Сначала выберите карту командой /usecard <ID>");
-            activeCard.paid += num;
-            bot.sendMessage(chatId, `Для карты "${activeCard.name}" зачислена выплата: ${helpers.formatRUB(num)}. Всего выплачено по карте: ${helpers.formatRUB(activeCard.paid)}`);
-            helpers.logTransaction(`Card #${activeCard.id} Paid: ${helpers.formatRUB(num)}. Total: ${helpers.formatRUB(activeCard.paid)}`, core.logFilePath);
+            bot.sendMessage(chatId, "Сначала выберите карту командой /usecard <ID>");
             processed = true;
         } else if (waiting[chatId].buyRate) {
             chatState.buyRate = num;
@@ -91,45 +91,23 @@ bot.on('message', async (msg) => {
     }
 
     if (text.startsWith('+') && !isNaN(parseFloat(text.slice(1)))) {
-        const activeCard = core.getActiveCard(chatId, userId);
-        if (!activeCard) return bot.sendMessage(chatId, "❌ Не выбрана активная карта. Используйте /usecard <ID>");
-        const buyAmount = parseFloat(text.slice(1));
-        const order = {
-            id: chatState.nextOrderId++,
-            buyAmountRUB: buyAmount,
-            status: 'open',
-            profitRUB: null,
-            sellAmountRUB: null,
-            openTimestamp: new Date().toISOString(),
-        };
-        activeCard.orders.push(order);
+        if (typeof chatState.deposit !== 'number') chatState.deposit = 0;
+        let amount = parseFloat(text.slice(1));
+        chatState.deposit += amount;
         core.saveState();
-        helpers.logTransaction(`Card #${activeCard.id}: Opened order #${order.id} for ${helpers.formatRUB(buyAmount)}`, core.logFilePath);
-        return bot.sendMessage(chatId, `✅ На карту "${activeCard.name}" добавлен ордер #${order.id} на сумму ${helpers.formatRUB(buyAmount)}`);
+        helpers.logTransaction(`Депозит увеличен на ${helpers.formatUSD(amount, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}`, core.logFilePath);
+        return bot.sendMessage(chatId, `✅ Депозит увеличен на ${helpers.formatUSD(amount, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}`);
     }
 
-    if (text.startsWith('-') && text.split(' ').length === 2) {
-        const parts = text.slice(1).split(' ');
-        const orderId = parseInt(parts[0], 10);
-        const sellAmount = parseFloat(parts[1]);
-        if (isNaN(orderId) || isNaN(sellAmount)) return bot.sendMessage(chatId, 'Неверный формат. Используйте: -<ID> <сумма>');
-        let targetOrder = null;
-        for (const card of chatState.cards) {
-            const order = card.orders.find(o => o.id === orderId && o.status === 'open');
-            if (order) {
-                targetOrder = order;
-                break;
-            }
-        }
-        if (!targetOrder) return bot.sendMessage(chatId, `Открытый ордер с ID #${orderId} не найден.`);
-        targetOrder.status = 'closed';
-        targetOrder.sellAmountRUB = sellAmount;
-        targetOrder.profitRUB = targetOrder.sellAmountRUB - targetOrder.buyAmountRUB;
-        targetOrder.closeTimestamp = new Date().toISOString();
+    if (text.startsWith('-') && !isNaN(parseFloat(text.slice(1)))) {
+        if (typeof chatState.deposit !== 'number') chatState.deposit = 0;
+        if (typeof chatState.withdrawRUB !== 'number') chatState.withdrawRUB = 0;
+        let amount = parseFloat(text.slice(1));
+        chatState.deposit -= amount;
+        chatState.withdrawRUB += amount * chatState.sellRate;
         core.saveState();
-        helpers.logTransaction(`Closed order #${targetOrder.id} for ${helpers.formatRUB(sellAmount)}. Profit: ${helpers.formatRUB(targetOrder.profitRUB)}`, core.logFilePath);
-        const profitMessage = targetOrder.profitRUB >= 0 ? `💰 Профит: ${helpers.formatRUB(targetOrder.profitRUB)}` : `🔻 Убыток: ${helpers.formatRUB(targetOrder.profitRUB)}`;
-        return bot.sendMessage(chatId, `☑️ Ордер #${orderId} закрыт.\nСумма продажи: ${helpers.formatRUB(sellAmount)}\n${profitMessage}`);
+        helpers.logTransaction(`С депозита списано ${helpers.formatUSD(amount, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}. Перегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}`, core.logFilePath);
+        return bot.sendMessage(chatId, `💸 С депозита списано ${helpers.formatUSD(amount, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}\nПерегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}`);
     }
 
     switch (normalizedMessage) {
@@ -137,170 +115,23 @@ bot.on('message', async (msg) => {
             stopbot[chatId] = false;
             return bot.sendMessage(chatId, `Бот запущен и готов к работе!`);
         case '/info': {
-            const activeCard = core.getActiveCard(chatId, userId);
-            let infoText = `📊 *Общая сводка по всем картам*\n\n`;
-            const allCardsProfit = chatState.cards.reduce((sum, card) => {
-                const cardProfit = card.orders.filter(o => o.status === 'closed').reduce((s, o) => s + (o.profitRUB || 0), 0);
-                return sum + cardProfit;
-            }, 0);
-            const allCardsPaid = chatState.cards.reduce((sum, card) => sum + card.paid, 0);
-            const allCardsDeposit = chatState.cards.reduce((sum, card) => sum + card.deposit, 0);
-            const profitAfterPercentage = allCardsProfit - (allCardsProfit * chatState.procentage / 100);
-            const readyForPayment = profitAfterPercentage - allCardsPaid;
-            infoText += `💰 *Общий депозит:* ${helpers.formatRUB(allCardsDeposit)}\n`;
-            infoText += `📈 *Общий профит:* ${helpers.formatRUB(allCardsProfit)}\n`;
-            infoText += ` - Профит (-${chatState.procentage}%): ${helpers.formatRUB(profitAfterPercentage)}\n`;
-            infoText += ` - Всего выплачено: ${helpers.formatRUB(allCardsPaid)}\n`;
-            infoText += ` - *Итого к выплате:* ${helpers.formatRUB(readyForPayment)}\n\n`;
-            infoText += `💲 *Курсы:* ${chatState.buyRate} / ${chatState.sellRate} (Покупка/Продажа)\n\n`;
-            infoText += `🗂️ *Сводка по картам:*\n`;
-            if (chatState.cards.length > 0) {
-                chatState.cards.forEach(card => {
-                    const cardProfit = card.orders.filter(o => o.status === 'closed').reduce((s, o) => s + (o.profitRUB || 0), 0);
-                    const activeMarker = activeCard && activeCard.id === card.id ? '📍' : '';
-                    infoText += `${activeMarker}ID: ${card.id} | "${card.name}" (${card.owner}) - Профит: ${helpers.formatRUB(cardProfit)}\n`;
-                });
-            } else {
-                infoText += `Карт пока нет.\n`;
+            let infoText = `📊 *Сводка*\n\n`;
+            infoText += `💲 *Курсы:* ${chatState.buyRate} / ${chatState.sellRate} (Покупка/Продажа)\n`;
+            infoText += `Процент: ${chatState.procentage}%\n`;
+            if (typeof chatState.deposit === 'number') {
+                infoText += `Депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}\n`;
             }
-            if (activeCard) {
-                infoText += `\n\n*───────────*\n\n`;
-                infoText += `📍 *Активная карта: "${activeCard.name}" (ID: ${activeCard.id})*\n`;
-                const openOrders = activeCard.orders.filter(o => o.status === 'open');
-                const closedOrders = activeCard.orders.filter(o => o.status === 'closed');
-                const cardProfit = closedOrders.reduce((sum, o) => sum + (o.profitRUB || 0), 0);
-                const openOrdersValue = openOrders.reduce((sum, o) => sum + o.buyAmountRUB, 0);
-                infoText += ` - Депозит: ${helpers.formatRUB(activeCard.deposit)}\n`;
-                infoText += ` - Выплачено: ${helpers.formatRUB(activeCard.paid)}\n`;
-                infoText += ` - Профит по карте: ${helpers.formatRUB(cardProfit)}\n`;
-                infoText += ` - Ордера в работе (${openOrders.length} шт.): ${helpers.formatRUB(openOrdersValue)}\n`;
-                if (openOrders.length > 0) {
-                    openOrders.slice(-5).forEach(o => {
-                        infoText += `   - Ордер #${o.id}: ${helpers.formatRUB(o.buyAmountRUB)}\n`;
-                    });
-                }
-            } else {
-                infoText += `\n\n_Чтобы увидеть детальную информацию по карте, выберите ее: /usecard <ID>_`;
+            if (typeof chatState.withdrawRUB === 'number' && chatState.withdrawRUB > 0) {
+                infoText += `Перегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}\n`;
+            }
+            if (chatState.sessionMode) {
+                let modeText = '';
+                if (chatState.sessionMode === 'RUB_TO_USDT') modeText = 'Перегон RUB -> USDT';
+                if (chatState.sessionMode === 'USDT_TO_RUB') modeText = 'Перегон USDT -> RUB';
+                if (chatState.sessionMode === 'ARBITRAGE') modeText = 'Арбитраж';
+                infoText += `Режим: ${modeText}\n`;
             }
             return bot.sendMessage(chatId, infoText, { parse_mode: 'Markdown' });
-        }
-        case '/listcards': {
-            let listText = '🗂️ *Список всех карт:*\n\n';
-            if (chatState.cards.length === 0) {
-                listText = 'Карт пока нет.';
-            } else {
-                chatState.cards.forEach(card => {
-                    listText += `*ID: ${card.id}* | "${card.name}" | Владелец: ${card.owner}\n`;
-                });
-            }
-            return bot.sendMessage(chatId, listText, { parse_mode: 'Markdown' });
-        }
-        case '/usecard': {
-            const args = msg.text.split(' ').slice(1);
-            if (args.length !== 1) return bot.sendMessage(chatId, 'Неверный формат. Используйте: /usecard <ID>');
-            const cardId = parseInt(args[0], 10);
-            if (isNaN(cardId)) return bot.sendMessage(chatId, 'ID карты должен быть числом.');
-            const cardToUse = chatState.cards.find(c => c.id === cardId);
-            if (!cardToUse) return bot.sendMessage(chatId, `Карта с ID ${cardId} не найдена.`);
-            chatState.userSessions[userId] = cardId;
-            core.saveState();
-            return bot.sendMessage(chatId, `📍 Активная карта изменена на "${cardToUse.name}" (ID: ${cardToUse.id})`);
-        }
-        case '/removecard': {
-            if (!isAdmin) return bot.sendMessage(chatId, 'Отказано в доступе');
-            const args = msg.text.split(' ').slice(1);
-            if (args.length !== 1) return bot.sendMessage(chatId, 'Неверный формат. Используйте: /removecard <ID>');
-            const cardId = parseInt(args[0], 10);
-            if (isNaN(cardId)) return bot.sendMessage(chatId, 'ID карты должен быть числом.');
-            const cardIndex = chatState.cards.findIndex(c => c.id === cardId);
-            if (cardIndex === -1) return bot.sendMessage(chatId, `Карта с ID ${cardId} не найдена.`);
-            const [removedCard] = chatState.cards.splice(cardIndex, 1);
-            for (const sessionUserId in chatState.userSessions) {
-                if (chatState.userSessions[sessionUserId] === cardId) {
-                    delete chatState.userSessions[sessionUserId];
-                }
-            }
-            core.saveState();
-            helpers.logTransaction(`Card removed: #${removedCard.id} ${removedCard.name}`, core.logFilePath);
-            return bot.sendMessage(chatId, `🗑️ Карта "${removedCard.name}" (ID: ${removedCard.id}) была удалена.`);
-        }
-        case '/deposit':
-            if (isAdmin) {
-                const activeCard = core.getActiveCard(chatId, userId);
-                if (!activeCard) return bot.sendMessage(chatId, "Сначала выберите карту командой /usecard <ID>");
-                waiting[chatId].deposit = true;
-                msgWait[chatId] = await bot.sendMessage(chatId, `Введите сумму для пополнения депозита карты "${activeCard.name}":`);
-            } else {
-                bot.sendMessage(chatId, 'Отказано в доступе');
-            }
-            break;
-        case '/expense':
-            if (isAdmin) {
-                const activeCard = core.getActiveCard(chatId, userId);
-                if (!activeCard) return bot.sendMessage(chatId, "Сначала выберите карту командой /usecard <ID>");
-                waiting[chatId].depositMinus = true;
-                msgWait[chatId] = await bot.sendMessage(chatId, `Введите сумму расхода для списания с депозита карты "${activeCard.name}":`);
-            } else {
-                bot.sendMessage(chatId, 'Отказано в доступе');
-            }
-            break;
-        case '/paid':
-            if (isAdmin) {
-                const activeCard = core.getActiveCard(chatId, userId);
-                if (!activeCard) return bot.sendMessage(chatId, "Сначала выберите карту командой /usecard <ID>");
-                waiting[chatId].paid = true;
-                msgWait[chatId] = await bot.sendMessage(chatId, `Введите сумму выплаты для карты "${activeCard.name}":`);
-            } else {
-                bot.sendMessage(chatId, 'Отказано в доступе');
-            }
-            break;
-        case '/close': {
-            if (!isAdmin) return bot.sendMessage(chatId, 'Отказано в доступе');
-            const args = text.split(' ');
-            if (args.length !== 3) return bot.sendMessage(chatId, 'Неверный формат. Используйте: /close <ID> <сумма>');
-            const orderId = parseInt(args[1], 10);
-            const sellAmount = parseFloat(args[2]);
-            if (isNaN(orderId) || isNaN(sellAmount)) return bot.sendMessage(chatId, 'ID ордера и сумма должны быть числами.');
-            let order = null;
-            for (const card of chatState.cards) {
-                const foundOrder = card.orders.find(o => o.id === orderId && o.status === 'open');
-                if (foundOrder) {
-                    order = foundOrder;
-                    break;
-                }
-            }
-            if (!order) return bot.sendMessage(chatId, `Открытый ордер с ID #${orderId} не найден.`);
-            order.status = 'closed';
-            order.sellAmountRUB = sellAmount;
-            order.profitRUB = order.sellAmountRUB - order.buyAmountRUB;
-            order.closeTimestamp = new Date().toISOString();
-            core.saveState();
-            helpers.logTransaction(`Closed order #${order.id} for ${helpers.formatRUB(sellAmount)}. Profit: ${helpers.formatRUB(order.profitRUB)}`, core.logFilePath);
-            const profitMessage = order.profitRUB >= 0 ? `💰 Профит: ${helpers.formatRUB(order.profitRUB)}` : `🔻 Убыток: ${helpers.formatRUB(order.profitRUB)}`;
-            return bot.sendMessage(chatId, `☑️ Ордер #${orderId} закрыт.\nСумма продажи: ${helpers.formatRUB(sellAmount)}\n${profitMessage}`);
-        }
-        case '/cancelorder': {
-            if (!isAdmin) return bot.sendMessage(chatId, 'Отказано в доступе');
-            const args = text.split(' ');
-            if (args.length !== 2) return bot.sendMessage(chatId, 'Неверный формат. Используйте: /cancelorder <ID>');
-            const orderId = parseInt(args[1], 10);
-            if (isNaN(orderId)) return bot.sendMessage(chatId, 'ID ордера должен быть числом.');
-            let orderIndex = -1;
-            let cardWithOrder = null;
-            for (const card of chatState.cards) {
-                const index = card.orders.findIndex(o => o.id === orderId);
-                if (index !== -1) {
-                    orderIndex = index;
-                    cardWithOrder = card;
-                    break;
-                }
-            }
-            if (orderIndex === -1) return bot.sendMessage(chatId, `Ордер с ID #${orderId} не найден.`);
-            if (cardWithOrder.orders[orderIndex].status === 'closed') return bot.sendMessage(chatId, `Ордер #${orderId} уже закрыт и не может быть отменен.`);
-            const [cancelledOrder] = cardWithOrder.orders.splice(orderIndex, 1);
-            core.saveState();
-            helpers.logTransaction(`Cancelled order #${cancelledOrder.id} from card #${cardWithOrder.id}`, core.logFilePath);
-            return bot.sendMessage(chatId, `❌ Ордер #${cancelledOrder.id} на сумму ${helpers.formatRUB(cancelledOrder.buyAmountRUB)} был отменен.`);
         }
         case '/setbuyrate':
             if (isAdmin) {
@@ -345,6 +176,85 @@ bot.on('message', async (msg) => {
                 bot.sendMessage(chatId, 'Отказано в доступе');
             }
             break;
+        case '/deposit':
+            if (isAdmin) {
+                if (chatState.sessionMode === 'USDT_TO_RUB') {
+                    waiting[chatId].deposit = true;
+                    msgWait[chatId] = await bot.sendMessage(chatId, `Введите сумму депозита в USDT:`);
+                } else {
+                    waiting[chatId].deposit = true;
+                    msgWait[chatId] = await bot.sendMessage(chatId, `Введите сумму депозита в USDT:`);
+                }
+            } else {
+                bot.sendMessage(chatId, 'Отказано в доступе');
+            }
+            break;
+        case '/admin': {
+            if (!isAdmin) return bot.sendMessage(chatId, 'Отказано в доступе');
+            const inlineKeyboard = {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: 'RUB -> USDT', callback_data: 'RUB_TO_USDT' }],
+                        [{ text: 'USDT -> RUB', callback_data: 'USDT_TO_RUB' }],
+                        [{ text: 'Арбитраж', callback_data: 'ARBITRAGE' }],
+                    ]
+                }
+            };
+            return bot.sendMessage(chatId, 'Выберите режим работы:', inlineKeyboard);
+        }
+        case '/withdrawrub': {
+            if (!isAdmin) return bot.sendMessage(chatId, 'Отказано в доступе');
+            if (chatState.sessionMode !== 'USDT_TO_RUB') return bot.sendMessage(chatId, 'Данная команда доступна только в режиме USDT -> RUB');
+            waiting[chatId].withdrawRUB = true;
+            msgWait[chatId] = await bot.sendMessage(chatId, `Введите сумму в RUB, которую перегнали из USDT:`);
+            break;
+        }
+        case '/reset': {
+            if (!isAdmin) return bot.sendMessage(chatId, 'Отказано в доступе');
+            const def = core.getChatState(chatId);
+            Object.keys(def).forEach(k => delete def[k]);
+            const newState = { procentage: 5, buyRate: 89, sellRate: 90 };
+            Object.assign(def, newState);
+            core.saveState();
+            return bot.sendMessage(chatId, 'Состояние бота полностью сброшено для этого чата.');
+        }
+    }
+
+    // Обработка выбора режима через кнопки
+    if (msg.text === 'RUB -> USDT' || msg.text === 'USDT -> RUB' || msg.text === 'Арбитраж') {
+        if (isAdmin) {
+            let mode = '';
+            if (msg.text === 'RUB -> USDT') mode = 'RUB_TO_USDT';
+            if (msg.text === 'USDT -> RUB') mode = 'USDT_TO_RUB';
+            if (msg.text === 'Арбитраж') mode = 'ARBITRAGE';
+            chatState.sessionMode = mode;
+            core.saveState();
+            return bot.sendMessage(chatId, `Режим установлен: ${msg.text}`);
+        }
+    }
+});
+
+// Добавляю обработку callback_query для выбора режима
+bot.on('callback_query', (query) => {
+    const chatId = query.message.chat.id;
+    const userId = query.from.id;
+    const chatState = core.getChatState(chatId);
+    if (!Array.isArray(chatState.admins)) chatState.admins = [934931129, 722365458, 7031413034, 5040590272, 1653318632];
+    const isAdmin = chatState.admins.includes(userId);
+    if (!isAdmin) return bot.answerCallbackQuery(query.id, { text: 'Отказано в доступе', show_alert: true });
+    let mode = '';
+    if (query.data === 'RUB_TO_USDT') mode = 'RUB_TO_USDT';
+    if (query.data === 'USDT_TO_RUB') mode = 'USDT_TO_RUB';
+    if (query.data === 'ARBITRAGE') mode = 'ARBITRAGE';
+    if (mode) {
+        chatState.sessionMode = mode;
+        core.saveState();
+        bot.editMessageText(`Режим установлен: ${
+            mode === 'RUB_TO_USDT' ? 'Перегон RUB -> USDT' :
+            mode === 'USDT_TO_RUB' ? 'Перегон USDT -> RUB' :
+            'Арбитраж'
+        }`, { chat_id: chatId, message_id: query.message.message_id });
+        bot.answerCallbackQuery(query.id, { text: 'Режим изменён' });
     }
 });
 
