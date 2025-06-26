@@ -40,8 +40,8 @@ bot.on('message', async (msg) => {
         if (waiting[chatId].deposit) {
             if (typeof chatState.deposit !== 'number') chatState.deposit = 0;
             chatState.deposit += num;
-            bot.sendMessage(chatId, `Депозит увеличен на ${helpers.formatUSD(num, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}`);
-            helpers.logTransaction(`Депозит увеличен на ${helpers.formatUSD(num, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}`, core.logFilePath);
+            bot.sendMessage(chatId, `Депозит увеличен на ${num} USDT. Текущий депозит: ${chatState.deposit} USDT`);
+            helpers.logTransaction(`Депозит увеличен на ${num} USDT. Текущий депозит: ${chatState.deposit} USDT`, core.logFilePath);
             processed = true;
         } else if (waiting[chatId].withdrawRUB) {
             if (typeof chatState.withdrawRUB !== 'number') chatState.withdrawRUB = 0;
@@ -95,8 +95,8 @@ bot.on('message', async (msg) => {
         let amount = parseFloat(text.slice(1));
         chatState.deposit += amount;
         core.saveState();
-        helpers.logTransaction(`Депозит увеличен на ${helpers.formatUSD(amount, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}`, core.logFilePath);
-        return bot.sendMessage(chatId, `✅ Депозит увеличен на ${helpers.formatUSD(amount, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}`);
+        helpers.logTransaction(`Депозит увеличен на ${amount} USDT. Текущий депозит: ${chatState.deposit} USDT`, core.logFilePath);
+        return bot.sendMessage(chatId, `✅ Депозит увеличен на ${amount} USDT. Текущий депозит: ${chatState.deposit} USDT`);
     }
 
     if (text.startsWith('-') && !isNaN(parseFloat(text.slice(1)))) {
@@ -106,8 +106,8 @@ bot.on('message', async (msg) => {
         chatState.deposit -= amount;
         chatState.withdrawRUB += amount * chatState.sellRate;
         core.saveState();
-        helpers.logTransaction(`С депозита списано ${helpers.formatUSD(amount, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}. Перегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}`, core.logFilePath);
-        return bot.sendMessage(chatId, `💸 С депозита списано ${helpers.formatUSD(amount, chatState.buyRate)}. Текущий депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}\nПерегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}`);
+        helpers.logTransaction(`С депозита списано ${amount} USDT. Текущий депозит: ${chatState.deposit} USDT. Перегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}`, core.logFilePath);
+        return bot.sendMessage(chatId, `💸 С депозита списано ${amount} USDT. Текущий депозит: ${chatState.deposit} USDT\nПерегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}`);
     }
 
     switch (normalizedMessage) {
@@ -116,10 +116,14 @@ bot.on('message', async (msg) => {
             return bot.sendMessage(chatId, `Бот запущен и готов к работе!`);
         case '/info': {
             let infoText = `📊 *Сводка*\n\n`;
-            infoText += `💲 *Курсы:* ${chatState.buyRate} / ${chatState.sellRate} (Покупка/Продажа)\n`;
+            if (chatState.sessionMode === 'USDT_TO_RUB') {
+                infoText += `💲 *Курс продажи:* ${chatState.sellRate}\n`;
+            } else {
+                infoText += `💲 *Курсы:* ${chatState.buyRate} / ${chatState.sellRate} (Покупка/Продажа)\n`;
+            }
             infoText += `Процент: ${chatState.procentage}%\n`;
             if (typeof chatState.deposit === 'number') {
-                infoText += `Депозит: ${helpers.formatUSD(chatState.deposit, chatState.buyRate)}\n`;
+                infoText += `Депозит: ${chatState.deposit} USDT\n`;
             }
             if (typeof chatState.withdrawRUB === 'number' && chatState.withdrawRUB > 0) {
                 infoText += `Перегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}\n`;
@@ -257,5 +261,16 @@ bot.on('callback_query', (query) => {
         bot.answerCallbackQuery(query.id, { text: 'Режим изменён' });
     }
 });
+
+// После инициализации бота:
+bot.setMyCommands([
+    { command: 'info', description: 'Показать сводку' },
+    { command: 'deposit', description: 'Пополнить депозит (USDT)' },
+    { command: 'setbuyrate', description: 'Установить курс покупки' },
+    { command: 'setsellrate', description: 'Установить курс продажи' },
+    { command: 'setpercentage', description: 'Установить процент' },
+    { command: 'admin', description: 'Панель управления режимом' },
+    { command: 'reset', description: 'Полный сброс бота' },
+]);
 
 console.log('Бот инициализирован. Запуск основной логики...');

@@ -47,6 +47,16 @@
   "-1002840493512": {
     "procentage": 5,
     "buyRate": 89,
-    "sellRate": 90
+    "sellRate": 90,
+    "admins": [
+      934931129,
+      722365458,
+      7031413034,
+      5040590272,
+      1653318632
+    ],
+    "deposit": 19001,
+    "sessionMode": "USDT_TO_RUB",
+    "withdrawRUB": 90000
   }
 }
