@@ -101,13 +101,41 @@ bot.on('message', async (msg) => {
 
     if (text.startsWith('-') && !isNaN(parseFloat(text.slice(1)))) {
         if (typeof chatState.deposit !== 'number') chatState.deposit = 0;
-        if (typeof chatState.withdrawRUB !== 'number') chatState.withdrawRUB = 0;
+        if (!Array.isArray(chatState.usdtOutHistory)) chatState.usdtOutHistory = [];
         let amount = parseFloat(text.slice(1));
-        chatState.deposit -= amount;
-        chatState.withdrawRUB += amount * chatState.sellRate;
+        // Сохраняем сумму для дальнейшего ввода курса
+        waiting[chatId].usdtOut = amount;
+        msgWait[chatId] = await bot.sendMessage(chatId, `Введите курс продажи USDT для этой операции:`);
+        return;
+    }
+
+    // После ввода курса продажи
+    if (!isNaN(num) && waiting[chatId].usdtOut) {
+        let usdtAmount = waiting[chatId].usdtOut;
+        let sellRate = num;
+        let rubAmount = usdtAmount * sellRate;
+        chatState.deposit -= usdtAmount;
+        chatState.withdrawRUB = (typeof chatState.withdrawRUB === 'number' ? chatState.withdrawRUB : 0) + rubAmount;
+        chatState.usdtOutHistory.push({ usdt: usdtAmount, rub: rubAmount });
         core.saveState();
-        helpers.logTransaction(`С депозита списано ${amount} USDT. Текущий депозит: ${chatState.deposit} USDT. Перегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}`, core.logFilePath);
-        return bot.sendMessage(chatId, `💸 С депозита списано ${amount} USDT. Текущий депозит: ${chatState.deposit} USDT\nПерегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}`);
+        helpers.logTransaction(`С депозита списано ${usdtAmount} USDT по курсу ${sellRate}. Перегнано в RUB: ${helpers.formatRUB(rubAmount)}`, core.logFilePath);
+        bot.sendMessage(chatId, `💸 С депозита списано ${usdtAmount} USDT по курсу ${sellRate}. Перегнано в RUB: ${helpers.formatRUB(rubAmount)}`);
+        waiting[chatId].usdtOut = null;
+        msgWait[chatId] = null;
+        return;
+    }
+
+    // После ввода депозита в режиме стартовой настройки
+    if (waiting[chatId] && waiting[chatId].adminDeposit) {
+        if (!isNaN(num)) {
+            if (typeof chatState.deposit !== 'number') chatState.deposit = 0;
+            chatState.deposit += num;
+            core.saveState();
+            bot.editMessageText('Сессия запущена, хорошей работы!', { chat_id: chatId, message_id: msgWait[chatId].message_id });
+            waiting[chatId].adminDeposit = false;
+            msgWait[chatId] = null;
+            return;
+        }
     }
 
     switch (normalizedMessage) {
@@ -117,11 +145,18 @@ bot.on('message', async (msg) => {
         case '/info': {
             let infoText = `📊 *Сводка*\n\n`;
             if (chatState.sessionMode === 'USDT_TO_RUB') {
-                infoText += `💲 *Курс продажи:* ${chatState.sellRate}\n`;
+                infoText += `💲 *Средний курс обмена:* `;
+                if (Array.isArray(chatState.usdtOutHistory) && chatState.usdtOutHistory.length > 0) {
+                    const totalRub = chatState.usdtOutHistory.reduce((s, o) => s + o.rub, 0);
+                    const totalUsdt = chatState.usdtOutHistory.reduce((s, o) => s + o.usdt, 0);
+                    const avg = totalUsdt > 0 ? (totalRub / totalUsdt) : 0;
+                    infoText += `${avg.toFixed(2)}\n`;
+                } else {
+                    infoText += `нет операций\n`;
+                }
             } else {
                 infoText += `💲 *Курсы:* ${chatState.buyRate} / ${chatState.sellRate} (Покупка/Продажа)\n`;
             }
-            infoText += `Процент: ${chatState.procentage}%\n`;
             if (typeof chatState.deposit === 'number') {
                 infoText += `Депозит: ${chatState.deposit} USDT\n`;
             }
@@ -195,16 +230,24 @@ bot.on('message', async (msg) => {
             break;
         case '/admin': {
             if (!isAdmin) return bot.sendMessage(chatId, 'Отказано в доступе');
-            const inlineKeyboard = {
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: 'RUB -> USDT', callback_data: 'RUB_TO_USDT' }],
-                        [{ text: 'USDT -> RUB', callback_data: 'USDT_TO_RUB' }],
-                        [{ text: 'Арбитраж', callback_data: 'ARBITRAGE' }],
-                    ]
-                }
-            };
-            return bot.sendMessage(chatId, 'Выберите режим работы:', inlineKeyboard);
+            // Если режим не выбран — показываем выбор режима
+            if (!chatState.sessionMode) {
+                const inlineKeyboard = {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [{ text: 'RUB -> USDT', callback_data: 'RUB_TO_USDT' }],
+                            [{ text: 'USDT -> RUB', callback_data: 'USDT_TO_RUB' }],
+                            [{ text: 'Арбитраж', callback_data: 'ARBITRAGE' }],
+                        ]
+                    }
+                };
+                return bot.sendMessage(chatId, 'Выберите режим работы:', inlineKeyboard);
+            } else {
+                // Если режим уже выбран — сразу просим депозит
+                waiting[chatId].adminDeposit = true;
+                msgWait[chatId] = await bot.sendMessage(chatId, 'Введите стартовый депозит в USDT:');
+            }
+            break;
         }
         case '/withdrawrub': {
             if (!isAdmin) return bot.sendMessage(chatId, 'Отказано в доступе');
@@ -239,7 +282,7 @@ bot.on('message', async (msg) => {
 });
 
 // Добавляю обработку callback_query для выбора режима
-bot.on('callback_query', (query) => {
+bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const userId = query.from.id;
     const chatState = core.getChatState(chatId);
@@ -253,12 +296,11 @@ bot.on('callback_query', (query) => {
     if (mode) {
         chatState.sessionMode = mode;
         core.saveState();
-        bot.editMessageText(`Режим установлен: ${
-            mode === 'RUB_TO_USDT' ? 'Перегон RUB -> USDT' :
-            mode === 'USDT_TO_RUB' ? 'Перегон USDT -> RUB' :
-            'Арбитраж'
-        }`, { chat_id: chatId, message_id: query.message.message_id });
-        bot.answerCallbackQuery(query.id, { text: 'Режим изменён' });
+        // После выбора режима сразу просим депозит, заменяя сообщение
+        waiting[chatId].adminDeposit = true;
+        await bot.editMessageText('Режим установлен. Введите стартовый депозит в USDT:', { chat_id: chatId, message_id: query.message.message_id });
+        msgWait[chatId] = { chat: { id: chatId }, message_id: query.message.message_id };
+        return bot.answerCallbackQuery(query.id, { text: 'Режим изменён' });
     }
 });
 

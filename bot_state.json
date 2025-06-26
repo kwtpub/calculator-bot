@@ -55,8 +55,14 @@
       5040590272,
       1653318632
     ],
-    "deposit": 19001,
     "sessionMode": "USDT_TO_RUB",
-    "withdrawRUB": 90000
+    "deposit": 19000,
+    "usdtOutHistory": [
+      {
+        "usdt": 1000,
+        "rub": 81000
+      }
+    ],
+    "withdrawRUB": 81000
   }
 }
