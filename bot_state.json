@@ -8,7 +8,7 @@
     {
       "id": 1,
       "buyAmountRUB": 1,
-      "status": "open",
+      "status": "close",
       "profitRUB": null,
       "sellAmountRUB": null,
       "openTimestamp": "2025-06-20T20:05:41.073Z"
