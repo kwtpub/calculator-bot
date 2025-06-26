@@ -2,7 +2,7 @@ const TelegramApi = require('node-telegram-bot-api');
 const core = require('./app/core/botCore');
 const helpers = require('./app/util/helpers');
 
-const token = '5337124438:AAE04oWHASaPccC_ewRzhcxXtGwc3qTZ8_E';
+const token = '8177306110:AAEvI3t25aHlc54jbYB-o4A-20MnRyrCDbI';
 const bot = new TelegramApi(token, { polling: true });
 
 core.loadState();
@@ -27,7 +27,7 @@ bot.on('message', async (msg) => {
     if (!waitingPushAdmin[chatId]) waitingPushAdmin[chatId] = false;
     if (!stopbot[chatId]) stopbot[chatId] = false;
 
-    let normalizedMessage = text.split(' ')[0].toLowerCase();
+    let normalizedMessage = text.split(' ')[0].toLowerCase().trim();
     if (normalizedMessage.includes('@')) {
         normalizedMessage = normalizedMessage.split('@')[0];
     }
@@ -143,34 +143,34 @@ bot.on('message', async (msg) => {
             stopbot[chatId] = false;
             return bot.sendMessage(chatId, `Бот запущен и готов к работе!`);
         case '/info': {
-            let infoText = `📊 *Сводка*\n\n`;
+            let infoText = '📊 <b>Сводка</b>\n\n';
             if (chatState.sessionMode === 'USDT_TO_RUB') {
-                infoText += `💲 *Средний курс обмена:* `;
+                infoText += `💲 <b>Средний курс обмена:</b> `;
                 if (Array.isArray(chatState.usdtOutHistory) && chatState.usdtOutHistory.length > 0) {
                     const totalRub = chatState.usdtOutHistory.reduce((s, o) => s + o.rub, 0);
                     const totalUsdt = chatState.usdtOutHistory.reduce((s, o) => s + o.usdt, 0);
                     const avg = totalUsdt > 0 ? (totalRub / totalUsdt) : 0;
-                    infoText += `${avg.toFixed(2)}\n`;
+                    infoText += `<b>${avg.toFixed(2)}</b>\n`;
                 } else {
-                    infoText += `нет операций\n`;
+                    infoText += `<i>нет операций</i>\n`;
                 }
             } else {
-                infoText += `💲 *Курсы:* ${chatState.buyRate} / ${chatState.sellRate} (Покупка/Продажа)\n`;
+                infoText += `💲 <b>Курсы:</b> <b>${chatState.buyRate}</b> / <b>${chatState.sellRate}</b> (Покупка/Продажа)\n`;
             }
             if (typeof chatState.deposit === 'number') {
-                infoText += `Депозит: ${chatState.deposit} USDT\n`;
+                infoText += `💰 <b>Депозит:</b> <b>${chatState.deposit} USDT</b>\n`;
             }
             if (typeof chatState.withdrawRUB === 'number' && chatState.withdrawRUB > 0) {
-                infoText += `Перегнано в RUB: ${helpers.formatRUB(chatState.withdrawRUB)}\n`;
+                infoText += `💸 <b>Перегнано в RUB:</b> <b>${helpers.formatRUB(chatState.withdrawRUB)}</b>\n`;
             }
             if (chatState.sessionMode) {
                 let modeText = '';
                 if (chatState.sessionMode === 'RUB_TO_USDT') modeText = 'Перегон RUB -> USDT';
                 if (chatState.sessionMode === 'USDT_TO_RUB') modeText = 'Перегон USDT -> RUB';
                 if (chatState.sessionMode === 'ARBITRAGE') modeText = 'Арбитраж';
-                infoText += `Режим: ${modeText}\n`;
+                infoText += `\n⚙️ <b>Режим:</b> <b>${modeText}</b>\n`;
             }
-            return bot.sendMessage(chatId, infoText, { parse_mode: 'Markdown' });
+            return bot.sendMessage(chatId, infoText, { parse_mode: 'HTML' });
         }
         case '/setbuyrate':
             if (isAdmin) {
@@ -265,6 +265,25 @@ bot.on('message', async (msg) => {
             core.saveState();
             return bot.sendMessage(chatId, 'Состояние бота полностью сброшено для этого чата.');
         }
+        case '/history': {
+            if (!Array.isArray(chatState.usdtOutHistory) || chatState.usdtOutHistory.length === 0) {
+                return bot.sendMessage(chatId, 'История пуста.');
+            }
+            let msg = 'История выводов USDT → RUB:\n';
+            chatState.usdtOutHistory.forEach((op, idx) => {
+                msg += `${idx + 1}. ${op.usdt} USDT → ${helpers.formatRUB(op.rub)}\n`;
+            });
+            return bot.sendMessage(chatId, msg);
+        }
+        case '/editout': {
+            const args = text.split(' ');
+            if (args.length !== 2) return bot.sendMessage(chatId, 'Используй: /editout N');
+            const idx = parseInt(args[1], 10) - 1;
+            if (isNaN(idx) || !chatState.usdtOutHistory || !chatState.usdtOutHistory[idx]) return bot.sendMessage(chatId, 'Операция не найдена.');
+            waiting[chatId].editOutIdx = idx;
+            msgWait[chatId] = await bot.sendMessage(chatId, `Введите новый курс для операции #${idx + 1} (было: ${chatState.usdtOutHistory[idx].usdt} USDT → ${helpers.formatRUB(chatState.usdtOutHistory[idx].rub)}):`);
+            return;
+        }
     }
 
     // Обработка выбора режима через кнопки
@@ -278,6 +297,23 @@ bot.on('message', async (msg) => {
             core.saveState();
             return bot.sendMessage(chatId, `Режим установлен: ${msg.text}`);
         }
+    }
+
+    // После ввода нового курса для /editout
+    if (!isNaN(num) && waiting[chatId].editOutIdx !== undefined) {
+        const idx = waiting[chatId].editOutIdx;
+        const op = chatState.usdtOutHistory[idx];
+        if (op) {
+            // Пересчитываем RUB для этой операции
+            op.rub = op.usdt * num;
+            // Пересчитываем withdrawRUB по всей истории
+            chatState.withdrawRUB = chatState.usdtOutHistory.reduce((s, o) => s + o.rub, 0);
+            core.saveState();
+            bot.sendMessage(chatId, `Операция #${idx + 1} обновлена: ${op.usdt} USDT → ${helpers.formatRUB(op.rub)}`);
+        }
+        waiting[chatId].editOutIdx = undefined;
+        msgWait[chatId] = null;
+        return;
     }
 });
 
@@ -313,6 +349,8 @@ bot.setMyCommands([
     { command: 'setpercentage', description: 'Установить процент' },
     { command: 'admin', description: 'Панель управления режимом' },
     { command: 'reset', description: 'Полный сброс бота' },
+    { command: 'history', description: 'История обменов USDT → RUB' },
+    { command: 'editout', description: 'Редактировать курс для вывода (используй: /editout N)' },
 ]);
 
 console.log('Бот инициализирован. Запуск основной логики...');
